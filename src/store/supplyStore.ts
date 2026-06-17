@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { SupplyBatch, SupplyUsage } from '@/types';
+import type { SupplyBatch, SupplyUsage, SupplyType } from '@/types';
 import { mockSupplyBatches, mockSupplyUsages } from '@/utils/mock';
 
 interface SupplyState {
@@ -14,10 +14,18 @@ interface SupplyState {
     appointmentId: string,
     donorName: string,
     direction: string,
+    stationId: string,
+    stationName: string,
+    supplyType: SupplyType,
+    supplyTypeName: string,
   ) => SupplyUsage | null;
   addUsage: (usage: SupplyUsage) => void;
   getLowStockBatches: () => SupplyBatch[];
   getBatchUsages: (batchId: string) => SupplyUsage[];
+  getAppointmentUsages: (appointmentId: string) => SupplyUsage[];
+  getStationUsages: (stationId: string, date?: string) => SupplyUsage[];
+  getUsagesByDirection: (direction: string) => SupplyUsage[];
+  getUsageByDate: (date: string) => SupplyUsage[];
 }
 
 export const useSupplyStore = create<SupplyState>()(
@@ -33,7 +41,17 @@ export const useSupplyStore = create<SupplyState>()(
           batches: state.batches.map((b) => (b.id === id ? { ...b, ...data } : b)),
         })),
 
-      splitOutbound: (batchId, quantity, appointmentId, donorName, direction) => {
+      splitOutbound: (
+        batchId,
+        quantity,
+        appointmentId,
+        donorName,
+        direction,
+        stationId,
+        stationName,
+        supplyType,
+        supplyTypeName,
+      ) => {
         const batch = get().batches.find((b) => b.id === batchId);
         if (!batch || batch.remainingQuantity < quantity) return null;
 
@@ -43,8 +61,12 @@ export const useSupplyStore = create<SupplyState>()(
           batchNo: batch.batchNo,
           appointmentId,
           donorName,
+          stationId,
+          stationName,
           quantity,
           direction,
+          supplyType,
+          supplyTypeName,
           usedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
         };
 
@@ -68,6 +90,26 @@ export const useSupplyStore = create<SupplyState>()(
 
       getBatchUsages: (batchId) => {
         return get().usages.filter((u) => u.batchId === batchId);
+      },
+
+      getAppointmentUsages: (appointmentId) => {
+        return get().usages.filter((u) => u.appointmentId === appointmentId);
+      },
+
+      getStationUsages: (stationId, date) => {
+        let list = get().usages.filter((u) => u.stationId === stationId);
+        if (date) {
+          list = list.filter((u) => u.usedAt.startsWith(date));
+        }
+        return list;
+      },
+
+      getUsagesByDirection: (direction) => {
+        return get().usages.filter((u) => u.direction === direction);
+      },
+
+      getUsageByDate: (date) => {
+        return get().usages.filter((u) => u.usedAt.startsWith(date));
       },
     }),
     {

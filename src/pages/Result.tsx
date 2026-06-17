@@ -12,19 +12,34 @@ import {
   Share2,
   AlertCircle,
   Map,
+  X,
+  Plus,
+  Minus,
+  Package,
+  Save,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { useSupplyStore } from '@/store/supplyStore';
+import { supplyTypeMap } from '@/utils/mock';
 import PageHeader from '@/components/layout/PageHeader';
+import type { SupplyType, SupplyBatch } from '@/types';
+
+interface SupplyItem {
+  batchId: string;
+  supplyType: SupplyType;
+  quantity: number;
+}
 
 export default function Result() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { appointments, stations, completeAppointment } = useAppStore();
-  const { batches, splitOutbound } = useSupplyStore();
+  const { batches, splitOutbound, getAppointmentUsages } = useSupplyStore();
 
   const [animated, setAnimated] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showSupplyModal, setShowSupplyModal] = useState(false);
+  const [supplyItems, setSupplyItems] = useState<SupplyItem[]>([]);
 
   useEffect(() => {
     const t = setTimeout(() => setAnimated(true), 100);
@@ -41,28 +56,90 @@ export default function Result() {
     [stations, appointment],
   );
 
-  const handleComplete = () => {
-    if (!appointment) return;
-    completeAppointment(appointment.id);
+  const usages = useMemo(
+    () => (appointment ? getAppointmentUsages(appointment.id) : []),
+    [appointment, getAppointmentUsages],
+  );
 
-    const relevantBatches = batches.filter((b) => b.remainingQuantity > 0);
-    relevantBatches.slice(0, 3).forEach((batch, idx) => {
-      const qty = batch.supplyType === 'tube' ? 4 : batch.supplyType === 'swab' ? 2 : 1;
-      const directions: Record<string, string> = {
-        needle: '静脉穿刺采血',
-        bag: '血液采集袋',
-        tube: '留样检测',
-        swab: '皮肤消毒',
-      };
-      splitOutbound(
+  const availableBatches = useMemo(() => {
+    return batches.filter((b) => b.remainingQuantity > 0);
+  }, [batches]);
+
+  const groupedBatches = useMemo(() => {
+    const map: Record<string, SupplyBatch[]> = {};
+    availableBatches.forEach((b) => {
+      if (!map[b.supplyType]) map[b.supplyType] = [];
+      map[b.supplyType].push(b);
+    });
+    return map;
+  }, [availableBatches]);
+
+  const openSupplyModal = () => {
+    const items: SupplyItem[] = [];
+    Object.entries(groupedBatches).forEach(([type, batchList]) => {
+      if (batchList.length > 0) {
+        const defaultQty = type === 'tube' ? 4 : type === 'swab' ? 2 : 1;
+        items.push({
+          batchId: batchList[0].id,
+          supplyType: type as SupplyType,
+          quantity: Math.min(defaultQty, batchList[0].remainingQuantity),
+        });
+      }
+    });
+    setSupplyItems(items);
+    setShowSupplyModal(true);
+  };
+
+  const handleQuantityChange = (index: number, delta: number) => {
+    setSupplyItems((items) => {
+      const next = [...items];
+      const item = { ...next[index] };
+      const batch = batches.find((b) => b.id === item.batchId);
+      const maxQty = batch?.remainingQuantity || 0;
+      item.quantity = Math.max(0, Math.min(maxQty, item.quantity + delta));
+      next[index] = item;
+      return next;
+    });
+  };
+
+  const handleBatchChange = (index: number, batchId: string) => {
+    setSupplyItems((items) => {
+      const next = [...items];
+      const item = { ...next[index] };
+      item.batchId = batchId;
+      const batch = batches.find((b) => b.id === batchId);
+      if (batch && item.quantity > batch.remainingQuantity) {
+        item.quantity = batch.remainingQuantity;
+      }
+      next[index] = item;
+      return next;
+    });
+  };
+
+  const handleCompleteWithSupplies = () => {
+    if (!appointment || !station) return;
+
+    let allSuccess = true;
+    supplyItems.forEach((item) => {
+      if (item.quantity <= 0) return;
+      const batch = batches.find((b) => b.id === item.batchId);
+      if (!batch) return;
+      const result = splitOutbound(
         batch.id,
-        Math.min(qty, batch.remainingQuantity),
+        item.quantity,
         appointment.id,
         appointment.donorName,
-        directions[batch.supplyType] || '采血使用',
+        supplyTypeMap[batch.supplyType]?.name || '采血使用',
+        station.id,
+        station.name,
+        batch.supplyType,
+        batch.supplyTypeName,
       );
+      if (!result) allSuccess = false;
     });
 
+    completeAppointment(appointment.id);
+    setShowSupplyModal(false);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
@@ -82,14 +159,25 @@ export default function Result() {
     );
   }
 
-  const statusConfig = {
-    pending: { label: '待确认', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-    confirmed: { label: '已确认', color: 'bg-secondary-50 text-secondary-700 border-secondary-200' },
-    completed: { label: '已完成', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    cancelled: { label: '已取消', color: 'bg-surface-100 text-surface-500 border-surface-200' },
+  const statusLabelMap: Record<string, string> = {
+    pending: '待确认',
+    confirmed: '已预约',
+    'checked-in': '已签到',
+    collecting: '采血中',
+    completed: '已完成',
+    cancelled: '已取消',
   };
 
-  const statusInfo = statusConfig[appointment.status];
+  const statusColorMap: Record<string, string> = {
+    pending: 'bg-amber-50 text-amber-700 border-amber-200',
+    confirmed: 'bg-secondary-50 text-secondary-700 border-secondary-200',
+    'checked-in': 'bg-blue-50 text-blue-700 border-blue-200',
+    collecting: 'bg-primary-50 text-primary-700 border-primary-200',
+    completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    cancelled: 'bg-surface-100 text-surface-500 border-surface-200',
+  };
+
+  const canComplete = appointment.status !== 'completed' && appointment.status !== 'cancelled';
 
   return (
     <div className="min-h-screen bg-surface-100 safe-bottom animate-fade-in">
@@ -136,8 +224,8 @@ export default function Result() {
         }`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-surface-800">预约详情</h3>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium border ${statusInfo.color}`}>
-              {statusInfo.label}
+            <span className={`px-3 py-1 rounded-full text-sm font-medium border ${statusColorMap[appointment.status]}`}>
+              {statusLabelMap[appointment.status]}
             </span>
           </div>
 
@@ -185,6 +273,34 @@ export default function Result() {
             </div>
           </div>
         </div>
+
+        {/* 已用耗材 */}
+        {usages.length > 0 && (
+          <div className={`card transition-all duration-700 delay-150 ${
+            animated ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+          }`}>
+            <h3 className="font-semibold text-surface-800 mb-3 flex items-center gap-2">
+              <Package className="w-4 h-4 text-primary-600" />
+              已用耗材
+            </h3>
+            <div className="space-y-2">
+              {usages.map((u) => (
+                <div key={u.id} className="flex items-center justify-between p-2.5 bg-surface-50 rounded-lg">
+                  <div>
+                    <div className="text-sm font-medium text-surface-800">{u.supplyTypeName}</div>
+                    <div className="text-xs text-surface-500">批次：{u.batchNo}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-primary-600">
+                      {u.quantity}{supplyTypeMap[u.supplyType]?.unit || ''}
+                    </div>
+                    <div className="text-xs text-surface-400">{u.direction}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 二维码卡 */}
         <div className={`card transition-all duration-700 delay-200 ${
@@ -252,10 +368,13 @@ export default function Result() {
           </button>
         </div>
 
-        {(appointment.status === 'pending' || appointment.status === 'confirmed') && (
-          <button onClick={handleComplete} className="btn-primary w-full flex items-center justify-center gap-2">
+        {canComplete && (
+          <button
+            onClick={openSupplyModal}
+            className="btn-primary w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700"
+          >
             <CheckCircle2 className="w-5 h-5" />
-            标记为采血完成
+            完成采血 · 登记耗材
           </button>
         )}
 
@@ -265,12 +384,104 @@ export default function Result() {
               <CheckCircle2 className="w-6 h-6" />
               <div>
                 <div className="font-semibold">采血完成</div>
-                <div className="text-sm text-emerald-100">耗材已自动出库</div>
+                <div className="text-sm text-emerald-100">耗材已登记出库</div>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* 耗材登记弹窗 */}
+      {showSupplyModal && appointment && station && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+          <div className="w-full max-w-[480px] bg-white rounded-t-3xl sm:rounded-3xl max-h-[80vh] flex flex-col animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-surface-100">
+              <div>
+                <h3 className="text-lg font-semibold text-surface-900">登记耗材使用</h3>
+                <p className="text-sm text-surface-500 mt-0.5">
+                  {appointment.donorName} · {appointment.timeRange}
+                </p>
+              </div>
+              <button onClick={() => setShowSupplyModal(false)} className="p-2 rounded-full hover:bg-surface-50">
+                <X className="w-5 h-5 text-surface-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {supplyItems.map((item, idx) => {
+                const batch = batches.find((b) => b.id === item.batchId);
+                if (!batch) return null;
+                const typeInfo = supplyTypeMap[item.supplyType];
+                const sameTypeBatches = groupedBatches[item.supplyType] || [];
+                return (
+                  <div key={idx} className="p-3 bg-surface-50 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{typeInfo?.icon || '📦'}</span>
+                        <span className="font-medium text-surface-800">{typeInfo?.name || item.supplyType}</span>
+                      </div>
+                      <div className="text-xs text-surface-500">
+                        剩余 {batch.remainingQuantity}{typeInfo?.unit || ''}
+                      </div>
+                    </div>
+
+                    <div className="mb-2">
+                      <label className="text-xs text-surface-500 mb-1 block">选择批次</label>
+                      <select
+                        value={item.batchId}
+                        onChange={(e) => handleBatchChange(idx, e.target.value)}
+                        className="w-full input-field text-sm"
+                      >
+                        {sameTypeBatches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.batchNo}（剩余 {b.remainingQuantity}）
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-surface-600">数量</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleQuantityChange(idx, -1)}
+                          className="w-8 h-8 rounded-lg bg-white border border-surface-200 flex items-center justify-center hover:bg-surface-100 text-surface-600"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <span className="w-10 text-center font-semibold text-surface-800">{item.quantity}</span>
+                        <button
+                          onClick={() => handleQuantityChange(idx, 1)}
+                          className="w-8 h-8 rounded-lg bg-primary-50 border border-primary-200 flex items-center justify-center hover:bg-primary-100 text-primary-600"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                        <span className="text-xs text-surface-400 ml-1">{typeInfo?.unit || ''}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-5 border-t border-surface-100 space-y-2">
+              <button
+                onClick={handleCompleteWithSupplies}
+                className="w-full btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <Save className="w-4 h-4" />
+                确认完成
+              </button>
+              <button
+                onClick={() => setShowSupplyModal(false)}
+                className="w-full btn-secondary"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

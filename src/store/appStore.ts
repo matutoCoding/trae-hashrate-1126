@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Appointment, Station, Donor, DonationRecord, TabType } from '@/types';
+import type { Appointment, Station, Donor, DonationRecord, TabType, AppointmentStatus } from '@/types';
 import { mockAppointments, mockStations, mockDonor, mockDonationRecords } from '@/utils/mock';
 
 interface AppState {
@@ -15,9 +15,14 @@ interface AppState {
   addAppointment: (apt: Appointment) => void;
   updateAppointment: (id: string, data: Partial<Appointment>) => void;
   cancelAppointment: (id: string) => void;
+  checkInAppointment: (id: string) => void;
+  startCollecting: (id: string) => void;
   completeAppointment: (id: string) => void;
   addDonationRecord: (record: DonationRecord) => void;
   updateDonor: (data: Partial<Donor>) => void;
+  getTodayAppointments: (date?: string) => Appointment[];
+  getStationAppointments: (stationId: string, date?: string) => Appointment[];
+  getAppointmentsByStatus: (status: AppointmentStatus, date?: string) => Appointment[];
 }
 
 export const useAppStore = create<AppState>()(
@@ -55,6 +60,14 @@ export const useAppStore = create<AppState>()(
         get().updateAppointment(id, { status: 'cancelled' });
       },
 
+      checkInAppointment: (id) => {
+        get().updateAppointment(id, { status: 'checked-in' });
+      },
+
+      startCollecting: (id) => {
+        get().updateAppointment(id, { status: 'collecting' });
+      },
+
       completeAppointment: (id) => {
         get().updateAppointment(id, {
           status: 'completed',
@@ -68,6 +81,32 @@ export const useAppStore = create<AppState>()(
 
       updateDonor: (data) => {
         set((state) => ({ donor: { ...state.donor, ...data } }));
+      },
+
+      getTodayAppointments: (date) => {
+        const targetDate = date || new Date().toISOString().split('T')[0];
+        return get().appointments.filter(
+          (a) => a.appointmentDate === targetDate && a.status !== 'cancelled',
+        );
+      },
+
+      getStationAppointments: (stationId, date) => {
+        const targetDate = date || new Date().toISOString().split('T')[0];
+        return get()
+          .appointments.filter(
+            (a) =>
+              a.stationId === stationId &&
+              a.appointmentDate === targetDate &&
+              a.status !== 'cancelled',
+          )
+          .sort((a, b) => a.timeSlot.localeCompare(b.timeSlot));
+      },
+
+      getAppointmentsByStatus: (status, date) => {
+        const targetDate = date || new Date().toISOString().split('T')[0];
+        return get().appointments.filter(
+          (a) => a.appointmentDate === targetDate && a.status === status,
+        );
       },
     }),
     {

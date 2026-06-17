@@ -15,7 +15,13 @@ export interface TimeSlot {
   total: number;
 }
 
-export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+export type AppointmentStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'checked-in'
+  | 'collecting'
+  | 'completed'
+  | 'cancelled';
 
 export interface Appointment {
   id: string;
@@ -53,8 +59,12 @@ export interface SupplyUsage {
   batchNo: string;
   appointmentId: string;
   donorName: string;
+  stationId: string;
+  stationName: string;
   quantity: number;
   direction: string;
+  supplyType: SupplyType;
+  supplyTypeName: string;
   usedAt: string;
 }
 

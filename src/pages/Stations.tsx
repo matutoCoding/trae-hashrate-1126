@@ -1,20 +1,40 @@
-import { useState } from 'react';
-import { Plus, MapPin, Wrench, Users, CheckCircle2, XCircle, AlertCircle, Settings, Save, X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, MapPin, Wrench, Users, CheckCircle2, XCircle, AlertCircle, Settings, Save, X, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { generateId } from '@/utils/mock';
 import PageHeader from '@/components/layout/PageHeader';
-import type { Station } from '@/types';
+import type { Station, Appointment } from '@/types';
+
+const statusLabelMap: Record<string, string> = {
+  pending: '待确认',
+  confirmed: '已预约',
+  'checked-in': '已签到',
+  collecting: '采血中',
+  completed: '已完成',
+  cancelled: '已取消',
+};
+
+const statusClassMap: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-700',
+  confirmed: 'bg-secondary-100 text-secondary-700',
+  'checked-in': 'bg-blue-100 text-blue-700',
+  collecting: 'bg-primary-100 text-primary-700',
+  completed: 'bg-emerald-100 text-emerald-700',
+  cancelled: 'bg-surface-100 text-surface-500',
+};
 
 export default function Stations() {
   const { stations, appointments, addStation, updateStation } = useAppStore();
 
   const [showForm, setShowForm] = useState(false);
   const [editStation, setEditStation] = useState<Station | null>(null);
+  const [selectedStation, setSelectedStation] = useState<Station | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     location: '',
     capacity: '10',
   });
+  const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -24,6 +44,28 @@ export default function Stations() {
       (a) => a.stationId === s.id && a.appointmentDate === today && a.status !== 'cancelled',
     ).length,
   }));
+
+  const stationAppointments = useMemo(() => {
+    if (!selectedStation) return [];
+    return appointments
+      .filter(
+        (a) =>
+          a.stationId === selectedStation.id &&
+          a.appointmentDate === today &&
+          a.status !== 'cancelled',
+      )
+      .sort((a, b) => a.timeSlot.localeCompare(b.timeSlot));
+  }, [selectedStation, appointments, today]);
+
+  const slotGroups = useMemo(() => {
+    const groups = new Map<string, Appointment[]>();
+    stationAppointments.forEach((apt) => {
+      const list = groups.get(apt.timeSlot) || [];
+      list.push(apt);
+      groups.set(apt.timeSlot, list);
+    });
+    return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [stationAppointments]);
 
   const openAdd = () => {
     setEditStation(null);
@@ -67,6 +109,13 @@ export default function Stations() {
       maintenance: 'idle',
     };
     updateStation(st.id, { status: nextStatus[st.status] });
+  };
+
+  const toggleSlot = (slotId: string) => {
+    const next = new Set(expandedSlots);
+    if (next.has(slotId)) next.delete(slotId);
+    else next.add(slotId);
+    setExpandedSlots(next);
   };
 
   const statusConfig = {
@@ -188,7 +237,10 @@ export default function Stations() {
                       <AlertCircle className="w-4 h-4" />
                       切换状态
                     </button>
-                    <button className="flex-1 py-2 rounded-xl text-sm font-medium bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors flex items-center justify-center gap-1.5">
+                    <button
+                      onClick={() => setSelectedStation(st)}
+                      className="flex-1 py-2 rounded-xl text-sm font-medium bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors flex items-center justify-center gap-1.5"
+                    >
                       <Users className="w-4 h-4" />
                       查看预约
                     </button>
@@ -255,6 +307,97 @@ export default function Stations() {
                 <Save className="w-4 h-4" />
                 保存
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 采血位预约详情弹窗 */}
+      {selectedStation && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+          <div className="w-full max-w-[480px] bg-white rounded-t-3xl sm:rounded-3xl max-h-[80vh] flex flex-col animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-surface-100">
+              <div>
+                <h3 className="text-lg font-semibold text-surface-900">{selectedStation.name}</h3>
+                <p className="text-sm text-surface-500 mt-0.5">
+                  今日预约 {stationAppointments.length} 人 / 容量 {selectedStation.capacity} 人
+                </p>
+              </div>
+              <button onClick={() => setSelectedStation(null)} className="p-2 rounded-full hover:bg-surface-50">
+                <X className="w-5 h-5 text-surface-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {stationAppointments.length === 0 ? (
+                <div className="text-center py-12 text-surface-400">
+                  <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>今日暂无预约</p>
+                </div>
+              ) : (
+                slotGroups.map(([slotId, apts]) => {
+                  const expanded = expandedSlots.has(slotId);
+                  const first = apts[0];
+                  return (
+                    <div key={slotId} className="bg-surface-50 rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => toggleSlot(slotId)}
+                        className="w-full p-3 flex items-center justify-between hover:bg-surface-100 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-primary-600" />
+                          <span className="font-medium text-surface-800">{first.timeRange}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white text-surface-600">
+                            {apts.length}人
+                          </span>
+                        </div>
+                        {expanded ? (
+                          <ChevronUp className="w-4 h-4 text-surface-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-surface-400" />
+                        )}
+                      </button>
+                      {expanded && (
+                        <div className="px-3 pb-3 space-y-2">
+                          {apts.map((apt) => (
+                            <div
+                              key={apt.id}
+                              className="p-3 bg-white rounded-lg border border-surface-100"
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-medium text-surface-800 text-sm">{apt.donorName}</span>
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${statusClassMap[apt.status] || 'tag-default'}`}>
+                                  {statusLabelMap[apt.status] || apt.status}
+                                </span>
+                              </div>
+                              <div className="text-xs text-surface-500">
+                                {apt.idCard.replace(/(\d{6})\d{8}(\d{4})/, '$1********$2')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-4 border-t border-surface-100">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="p-3 bg-emerald-50 rounded-xl text-center">
+                  <div className="text-lg font-bold text-emerald-600">
+                    {stationAppointments.filter((a) => a.status === 'completed').length}
+                  </div>
+                  <div className="text-xs text-emerald-600/80">已完成</div>
+                </div>
+                <div className="p-3 bg-primary-50 rounded-xl text-center">
+                  <div className="text-lg font-bold text-primary-600">
+                    {stationAppointments.filter((a) => a.status !== 'completed').length}
+                  </div>
+                  <div className="text-xs text-primary-600/80">待进行</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

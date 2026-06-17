@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Package, Calendar, AlertTriangle, TrendingDown, Eye, Save, X, SplitSquareHorizontal, Filter, AlertCircle } from 'lucide-react';
+import { Plus, Package, Calendar, AlertTriangle, TrendingDown, Eye, Save, X, SplitSquareHorizontal, Filter, AlertCircle, MapPin } from 'lucide-react';
 import { useSupplyStore } from '@/store/supplyStore';
+import { useAppStore } from '@/store/appStore';
 import { generateId, supplyTypeMap } from '@/utils/mock';
 import PageHeader from '@/components/layout/PageHeader';
 import type { SupplyBatch, SupplyType } from '@/types';
@@ -9,6 +10,7 @@ import type { SupplyBatch, SupplyType } from '@/types';
 export default function Supplies() {
   const navigate = useNavigate();
   const { batches, addBatch, splitOutbound, getBatchUsages } = useSupplyStore();
+  const { stations } = useAppStore();
   const today = new Date();
 
   const [showForm, setShowForm] = useState(false);
@@ -25,6 +27,8 @@ export default function Supplies() {
     appointmentId: '',
     donorName: '',
     direction: '全血采集',
+    stationId: '',
+    stationName: '',
   });
   const [splitError, setSplitError] = useState<string>('');
 
@@ -96,11 +100,15 @@ export default function Supplies() {
       splitData.appointmentId || generateId('apt'),
       splitData.donorName,
       splitData.direction,
+      splitData.stationId || stations[0]?.id || '',
+      splitData.stationName || stations[0]?.name || '',
+      batch.supplyType,
+      batch.supplyTypeName,
     );
 
     if (result) {
       setShowSplit(null);
-      setSplitData({ quantity: '10', appointmentId: '', donorName: '', direction: '全血采集' });
+      setSplitData({ quantity: '10', appointmentId: '', donorName: '', direction: '全血采集', stationId: '', stationName: '' });
     }
   };
 
@@ -254,6 +262,11 @@ export default function Supplies() {
                     onClick={() => {
                       setShowSplit(batch.id);
                       setSplitError('');
+                      setSplitData((f) => ({
+                        ...f,
+                        stationId: stations[0]?.id || '',
+                        stationName: stations[0]?.name || '',
+                      }));
                     }}
                     className="flex-1 py-2 rounded-xl text-sm font-medium bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors flex items-center justify-center gap-1.5"
                   >
@@ -425,6 +438,27 @@ export default function Supplies() {
                     <option>留样检测</option>
                     <option>皮肤消毒</option>
                     <option>应急使用</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm text-surface-600 mb-1.5 block">使用采血位</label>
+                  <select
+                    value={splitData.stationId}
+                    onChange={(e) => {
+                      const st = stations.find((s) => s.id === e.target.value);
+                      setSplitData((f) => ({
+                        ...f,
+                        stationId: e.target.value,
+                        stationName: st?.name || '',
+                      }));
+                    }}
+                    className="input-field"
+                  >
+                    {stations.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

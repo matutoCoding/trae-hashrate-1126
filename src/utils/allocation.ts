@@ -125,3 +125,39 @@ export function getAvailableSlotCount(
     idleStations: idleStations.length,
   };
 }
+
+export function getSlotOccupancy(
+  date: string,
+  timeSlotId: string,
+  stations: Station[],
+  appointments: Appointment[],
+): {
+  total: number;
+  used: number;
+  byStatus: Record<string, number>;
+  appointments: Appointment[];
+} {
+  const slotApps = appointments.filter(
+    (a) => a.appointmentDate === date && a.timeSlot === timeSlotId && a.status !== 'cancelled',
+  );
+
+  const totalCapacity = stations.reduce((sum, s) => sum + s.capacity, 0);
+
+  const byStatus: Record<string, number> = {
+    pending: 0,
+    confirmed: 0,
+    'checked-in': 0,
+    collecting: 0,
+    completed: 0,
+  };
+  slotApps.forEach((a) => {
+    byStatus[a.status] = (byStatus[a.status] || 0) + 1;
+  });
+
+  return {
+    total: totalCapacity,
+    used: slotApps.length,
+    byStatus,
+    appointments: slotApps.sort((a, b) => a.timeSlot.localeCompare(b.timeSlot)),
+  };
+}
