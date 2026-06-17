@@ -9,6 +9,8 @@ interface AppState {
   appointments: Appointment[];
   donor: Donor;
   donationRecords: DonationRecord[];
+  currentCallId: string | null;
+  queueCounter: number;
   setActiveTab: (tab: TabType) => void;
   addStation: (station: Station) => void;
   updateStation: (id: string, data: Partial<Station>) => void;
@@ -16,13 +18,22 @@ interface AppState {
   updateAppointment: (id: string, data: Partial<Appointment>) => void;
   cancelAppointment: (id: string) => void;
   checkInAppointment: (id: string) => void;
+  callNextAppointment: (date?: string) => Appointment | null;
+  recallAppointment: (id: string) => void;
+  markMissed: (id: string) => void;
   startCollecting: (id: string) => void;
   completeAppointment: (id: string) => void;
+  markDeferred: (id: string, reason: string) => void;
+  markRescheduled: (id: string, reason: string) => void;
+  markNoShow: (id: string, reason: string) => void;
   addDonationRecord: (record: DonationRecord) => void;
   updateDonor: (data: Partial<Donor>) => void;
   getTodayAppointments: (date?: string) => Appointment[];
   getStationAppointments: (stationId: string, date?: string) => Appointment[];
   getAppointmentsByStatus: (status: AppointmentStatus, date?: string) => Appointment[];
+  getCurrentCalled: (date?: string) => Appointment | null;
+  getWaitingQueue: (date?: string) => Appointment[];
+  getMissedQueue: (date?: string) => Appointment[];
 }
 
 export const useAppStore = create<AppState>()(
@@ -33,6 +44,8 @@ export const useAppStore = create<AppState>()(
       appointments: mockAppointments,
       donor: mockDonor,
       donationRecords: mockDonationRecords,
+      currentCallId: null,
+      queueCounter: 1,
 
       setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -57,22 +70,114 @@ export const useAppStore = create<AppState>()(
       },
 
       cancelAppointment: (id) => {
-        get().updateAppointment(id, { status: 'cancelled' });
+        get().updateAppointment(id, { status: 'cancelled', callStatus: 'done' });
       },
 
       checkInAppointment: (id) => {
-        get().updateAppointment(id, { status: 'checked-in' });
+        const state = get();
+        const nextQueue = state.queueCounter;
+        set({ queueCounter: nextQueue + 1 });
+        get().updateAppointment(id, {
+          status: 'checked-in',
+          callStatus: 'waiting',
+          queueNumber: nextQueue,
+        });
+      },
+
+      callNextAppointment: (date) => {
+        const targetDate = date || new Date().toISOString().split('T')[0];
+        const waiting = get()
+          .appointments.filter(
+            (a) =>
+              a.appointmentDate === targetDate &&
+              a.callStatus === 'waiting' &&
+              a.status === 'checked-in',
+          )
+          .sort((a, b) => (a.queueNumber || 0) - (b.queueNumber || 0));
+
+        if (waiting.length === 0) return null;
+
+        const next = waiting[0];
+
+        if (get().currentCallId) {
+          get().updateAppointment(get().currentCallId!, { callStatus: 'missed' });
+        }
+
+        get().updateAppointment(next.id, {
+          status: 'called',
+          callStatus: 'current',
+          calledAt: new Date().toISOString(),
+        });
+        set({ currentCallId: next.id });
+
+        return next;
+      },
+
+      recallAppointment: (id) => {
+        if (get().currentCallId) {
+          get().updateAppointment(get().currentCallId!, { callStatus: 'missed' });
+        }
+        get().updateAppointment(id, {
+          status: 'called',
+          callStatus: 'current',
+          calledAt: new Date().toISOString(),
+        });
+        set({ currentCallId: id });
+      },
+
+      markMissed: (id) => {
+        get().updateAppointment(id, { callStatus: 'missed' });
+        if (get().currentCallId === id) {
+          set({ currentCallId: null });
+        }
       },
 
       startCollecting: (id) => {
-        get().updateAppointment(id, { status: 'collecting' });
+        get().updateAppointment(id, { status: 'collecting', callStatus: 'done' });
+        if (get().currentCallId === id) {
+          set({ currentCallId: null });
+        }
       },
 
       completeAppointment: (id) => {
         get().updateAppointment(id, {
           status: 'completed',
           completedAt: new Date().toISOString(),
+          callStatus: 'done',
         });
+      },
+
+      markDeferred: (id, reason) => {
+        get().updateAppointment(id, {
+          status: 'deferred',
+          callStatus: 'done',
+          remark: reason,
+        });
+        if (get().currentCallId === id) {
+          set({ currentCallId: null });
+        }
+      },
+
+      markRescheduled: (id, reason) => {
+        get().updateAppointment(id, {
+          status: 'rescheduled',
+          callStatus: 'done',
+          remark: reason,
+        });
+        if (get().currentCallId === id) {
+          set({ currentCallId: null });
+        }
+      },
+
+      markNoShow: (id, reason) => {
+        get().updateAppointment(id, {
+          status: 'no-show',
+          callStatus: 'missed',
+          remark: reason,
+        });
+        if (get().currentCallId === id) {
+          set({ currentCallId: null });
+        }
       },
 
       addDonationRecord: (record) => {
@@ -108,6 +213,34 @@ export const useAppStore = create<AppState>()(
           (a) => a.appointmentDate === targetDate && a.status === status,
         );
       },
+
+      getCurrentCalled: (date) => {
+        const state = get();
+        if (!state.currentCallId) return null;
+        const apt = state.appointments.find((a) => a.id === state.currentCallId);
+        return apt || null;
+      },
+
+      getWaitingQueue: (date) => {
+        const targetDate = date || new Date().toISOString().split('T')[0];
+        return get()
+          .appointments.filter(
+            (a) =>
+              a.appointmentDate === targetDate &&
+              a.callStatus === 'waiting' &&
+              a.status === 'checked-in',
+          )
+          .sort((a, b) => (a.queueNumber || 0) - (b.queueNumber || 0));
+      },
+
+      getMissedQueue: (date) => {
+        const targetDate = date || new Date().toISOString().split('T')[0];
+        return get()
+          .appointments.filter(
+            (a) => a.appointmentDate === targetDate && a.callStatus === 'missed',
+          )
+          .sort((a, b) => (a.queueNumber || 0) - (b.queueNumber || 0));
+      },
     }),
     {
       name: 'blood-donation-app',
@@ -116,6 +249,8 @@ export const useAppStore = create<AppState>()(
         stations: state.stations,
         donor: state.donor,
         donationRecords: state.donationRecords,
+        currentCallId: state.currentCallId,
+        queueCounter: state.queueCounter,
       }),
     },
   ),

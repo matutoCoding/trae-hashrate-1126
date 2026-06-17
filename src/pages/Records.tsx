@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Droplets,
   Calendar,
@@ -9,6 +10,9 @@ import {
   CheckCircle2,
   Shield,
   Info,
+  FileClock,
+  AlertTriangle,
+  ChevronRight,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import {
@@ -18,8 +22,35 @@ import {
 } from '@/utils/validation';
 import PageHeader from '@/components/layout/PageHeader';
 
+const aptStatusLabel: Record<string, string> = {
+  pending: '待确认',
+  confirmed: '已预约',
+  'checked-in': '已签到',
+  called: '叫号中',
+  collecting: '采血中',
+  completed: '已完成',
+  deferred: '暂缓',
+  rescheduled: '改约',
+  'no-show': '未到场',
+  cancelled: '已取消',
+};
+
+const aptStatusClass: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-700',
+  confirmed: 'bg-secondary-100 text-secondary-700',
+  'checked-in': 'bg-blue-100 text-blue-700',
+  called: 'bg-red-100 text-red-700',
+  collecting: 'bg-primary-100 text-primary-700',
+  completed: 'bg-emerald-100 text-emerald-700',
+  deferred: 'bg-amber-100 text-amber-700',
+  rescheduled: 'bg-violet-100 text-violet-700',
+  'no-show': 'bg-orange-100 text-orange-700',
+  cancelled: 'bg-surface-200 text-surface-500',
+};
+
 export default function Records() {
-  const { donor, donationRecords } = useAppStore();
+  const navigate = useNavigate();
+  const { donor, donationRecords, appointments } = useAppStore();
   const today = new Date().toISOString().split('T')[0];
 
   const summary = useMemo(() => summarizeDonations(donationRecords), [donationRecords]);
@@ -269,6 +300,58 @@ export default function Records() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* 预约历史 */}
+        <div className="card">
+          <h3 className="font-semibold text-surface-800 mb-4 flex items-center gap-2">
+            <FileClock className="w-4 h-4 text-secondary-600" />
+            预约历史
+          </h3>
+
+          {appointments.length === 0 ? (
+            <div className="text-center py-8 text-surface-400">
+              <FileClock className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">暂无预约记录</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {[...appointments]
+                .sort((a, b) => b.appointmentDate.localeCompare(a.appointmentDate) || b.timeSlot.localeCompare(a.timeSlot))
+                .slice(0, 30)
+                .map((apt) => (
+                  <button
+                    key={apt.id}
+                    onClick={() => navigate(`/result/${apt.id}`)}
+                    className="w-full text-left p-3 bg-surface-50 rounded-xl hover:bg-surface-100 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-surface-800">
+                        {apt.appointmentDate} {apt.timeRange}
+                      </span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${aptStatusClass[apt.status] || 'tag-default'}`}
+                      >
+                        {aptStatusLabel[apt.status] || apt.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-surface-500">
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {apt.stationName}
+                      </span>
+                      <ChevronRight className="w-3 h-3 text-surface-400" />
+                    </div>
+                    {apt.remark && (
+                      <div className="flex items-start gap-1 mt-1.5 text-xs text-amber-600 bg-amber-50 rounded-lg px-2 py-1">
+                        <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                        {apt.remark}
+                      </div>
+                    )}
+                  </button>
+                ))}
             </div>
           )}
         </div>

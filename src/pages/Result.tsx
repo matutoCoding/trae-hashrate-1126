@@ -17,6 +17,8 @@ import {
   Minus,
   Package,
   Save,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { useSupplyStore } from '@/store/supplyStore';
@@ -33,13 +35,15 @@ interface SupplyItem {
 export default function Result() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { appointments, stations, completeAppointment } = useAppStore();
-  const { batches, splitOutbound, getAppointmentUsages } = useSupplyStore();
+  const { appointments, stations, completeAppointment, updateAppointment } = useAppStore();
+  const { batches, splitOutbound, getAppointmentUsages, getRecommendedBatch, validateSupplyRequest } =
+    useSupplyStore();
 
   const [animated, setAnimated] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showSupplyModal, setShowSupplyModal] = useState(false);
   const [supplyItems, setSupplyItems] = useState<SupplyItem[]>([]);
+  const [supplyErrors, setSupplyErrors] = useState<string[]>([]);
 
   useEffect(() => {
     const t = setTimeout(() => setAnimated(true), 100);
@@ -79,14 +83,16 @@ export default function Result() {
     Object.entries(groupedBatches).forEach(([type, batchList]) => {
       if (batchList.length > 0) {
         const defaultQty = type === 'tube' ? 4 : type === 'swab' ? 2 : 1;
+        const rec = getRecommendedBatch(type as SupplyType, defaultQty);
         items.push({
-          batchId: batchList[0].id,
+          batchId: rec.batch ? rec.batch.id : batchList[0].id,
           supplyType: type as SupplyType,
-          quantity: Math.min(defaultQty, batchList[0].remainingQuantity),
+          quantity: Math.min(defaultQty, rec.batch ? rec.batch.remainingQuantity : batchList[0].remainingQuantity),
         });
       }
     });
     setSupplyItems(items);
+    setSupplyErrors([]);
     setShowSupplyModal(true);
   };
 
@@ -119,26 +125,33 @@ export default function Result() {
   const handleCompleteWithSupplies = () => {
     if (!appointment || !station) return;
 
-    let allSuccess = true;
+    const result = validateSupplyRequest(supplyItems);
+    if (!result.valid) {
+      setSupplyErrors(result.errors.map((e) => e.message));
+      return;
+    }
+
+    const usageIds: string[] = [];
     supplyItems.forEach((item) => {
       if (item.quantity <= 0) return;
       const batch = batches.find((b) => b.id === item.batchId);
       if (!batch) return;
-      const result = splitOutbound(
+      const usage = splitOutbound(
         batch.id,
         item.quantity,
         appointment.id,
         appointment.donorName,
-        supplyTypeMap[batch.supplyType]?.name || '采血使用',
+        '采血使用',
         station.id,
         station.name,
         batch.supplyType,
         batch.supplyTypeName,
       );
-      if (!result) allSuccess = false;
+      if (usage) usageIds.push(usage.id);
     });
 
     completeAppointment(appointment.id);
+    updateAppointment(appointment.id, { supplyUsages: usageIds });
     setShowSupplyModal(false);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
@@ -163,8 +176,12 @@ export default function Result() {
     pending: '待确认',
     confirmed: '已预约',
     'checked-in': '已签到',
+    called: '叫号中',
     collecting: '采血中',
     completed: '已完成',
+    deferred: '暂缓',
+    rescheduled: '改约',
+    'no-show': '未到场',
     cancelled: '已取消',
   };
 
@@ -172,8 +189,12 @@ export default function Result() {
     pending: 'bg-amber-50 text-amber-700 border-amber-200',
     confirmed: 'bg-secondary-50 text-secondary-700 border-secondary-200',
     'checked-in': 'bg-blue-50 text-blue-700 border-blue-200',
+    called: 'bg-red-50 text-red-700 border-red-200',
     collecting: 'bg-primary-50 text-primary-700 border-primary-200',
     completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    deferred: 'bg-amber-50 text-amber-700 border-amber-200',
+    rescheduled: 'bg-violet-50 text-violet-700 border-violet-200',
+    'no-show': 'bg-orange-50 text-orange-700 border-orange-200',
     cancelled: 'bg-surface-100 text-surface-500 border-surface-200',
   };
 
@@ -261,6 +282,32 @@ export default function Result() {
                 </div>
               </div>
             </div>
+
+            {appointment.queueNumber && (
+              <div className="flex items-center gap-3 p-3 bg-primary-50 rounded-xl">
+                <div className="w-9 h-9 rounded-lg bg-primary-100 flex items-center justify-center">
+                  <span className="text-primary-700 font-bold text-sm">#</span>
+                </div>
+                <div>
+                  <div className="text-xs text-primary-500">排队号</div>
+                  <div className="font-bold text-primary-700">
+                    No.{String(appointment.queueNumber).padStart(3, '0')}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {appointment.remark && (
+              <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-xl">
+                <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-4.5 h-4.5 text-amber-600" />
+                </div>
+                <div>
+                  <div className="text-xs text-amber-500">异常说明</div>
+                  <div className="font-medium text-amber-800">{appointment.remark}</div>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-3 p-3 bg-surface-50 rounded-xl">
               <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
@@ -408,11 +455,22 @@ export default function Result() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {supplyErrors.length > 0 && (
+                <div className="p-3 bg-primary-50 rounded-xl space-y-1">
+                  {supplyErrors.map((err, idx) => (
+                    <div key={idx} className="flex items-start gap-1.5 text-sm text-primary-700">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      {err}
+                    </div>
+                  ))}
+                </div>
+              )}
               {supplyItems.map((item, idx) => {
                 const batch = batches.find((b) => b.id === item.batchId);
                 if (!batch) return null;
                 const typeInfo = supplyTypeMap[item.supplyType];
                 const sameTypeBatches = groupedBatches[item.supplyType] || [];
+                const rec = getRecommendedBatch(item.supplyType, item.quantity);
                 return (
                   <div key={idx} className="p-3 bg-surface-50 rounded-xl">
                     <div className="flex items-center justify-between mb-2">
@@ -420,10 +478,23 @@ export default function Result() {
                         <span className="text-lg">{typeInfo?.icon || '📦'}</span>
                         <span className="font-medium text-surface-800">{typeInfo?.name || item.supplyType}</span>
                       </div>
-                      <div className="text-xs text-surface-500">
-                        剩余 {batch.remainingQuantity}{typeInfo?.unit || ''}
-                      </div>
+                      {rec.batch && rec.batch.id !== item.batchId && (
+                        <button
+                          onClick={() => handleBatchChange(idx, rec.batch.id)}
+                          className="text-xs px-2 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors flex items-center gap-1"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          推荐{rec.batch.batchNo}
+                        </button>
+                      )}
                     </div>
+
+                    {rec.reason && (
+                      <div className="text-xs text-surface-500 mb-2 flex items-center gap-1">
+                        <Package className="w-3 h-3" />
+                        {rec.reason}
+                      </div>
+                    )}
 
                     <div className="mb-2">
                       <label className="text-xs text-surface-500 mb-1 block">选择批次</label>
@@ -434,7 +505,10 @@ export default function Result() {
                       >
                         {sameTypeBatches.map((b) => (
                           <option key={b.id} value={b.id}>
-                            {b.batchNo}（剩余 {b.remainingQuantity}）
+                            {b.batchNo}（剩{b.remainingQuantity}，{b.expiryDate}到期）
+                            {getRecommendedBatch(item.supplyType, item.quantity).batch?.id === b.id
+                              ? ' · 推荐'
+                              : ''}
                           </option>
                         ))}
                       </select>

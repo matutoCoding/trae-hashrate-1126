@@ -26,7 +26,20 @@ interface SupplyState {
   getStationUsages: (stationId: string, date?: string) => SupplyUsage[];
   getUsagesByDirection: (direction: string) => SupplyUsage[];
   getUsageByDate: (date: string) => SupplyUsage[];
+  getRecommendedBatch: (type: SupplyType, quantity: number) => {
+    batch: SupplyBatch | null;
+    reason: string;
+    alternatives: SupplyBatch[];
+  };
+  validateSupplyRequest: (
+    items: { supplyType: SupplyType; batchId: string; quantity: number }[],
+  ) => {
+    valid: boolean;
+    errors: { type: SupplyType; message: string }[];
+  };
 }
+
+export type { SupplyState };
 
 export const useSupplyStore = create<SupplyState>()(
   persist(
@@ -110,6 +123,68 @@ export const useSupplyStore = create<SupplyState>()(
 
       getUsageByDate: (date) => {
         return get().usages.filter((u) => u.usedAt.startsWith(date));
+      },
+
+      getRecommendedBatch: (type, quantity) => {
+        const today = new Date().toISOString().split('T')[0];
+        const thirtyDaysLater = new Date(Date.now() + 30 * 24 * 3600 * 1000)
+          .toISOString()
+          .split('T')[0];
+
+        const sameTypeBatches = get()
+          .batches.filter((b) => b.supplyType === type && b.remainingQuantity > 0)
+          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+
+        if (sameTypeBatches.length === 0) {
+          return { batch: null, reason: '该类型无可用库存', alternatives: [] };
+        }
+
+        const expiringSoon = sameTypeBatches.filter((b) => b.expiryDate <= thirtyDaysLater);
+        const hasEnoughExpiring = expiringSoon.find((b) => b.remainingQuantity >= quantity);
+
+        if (hasEnoughExpiring) {
+          return {
+            batch: hasEnoughExpiring,
+            reason: `临期优先（${hasEnoughExpiring.expiryDate}到期）`,
+            alternatives: sameTypeBatches.filter((b) => b.id !== hasEnoughExpiring.id),
+          };
+        }
+
+        const hasEnough = sameTypeBatches.find((b) => b.remainingQuantity >= quantity);
+        if (hasEnough) {
+          return {
+            batch: hasEnough,
+            reason: `库存充足（${hasEnough.remainingQuantity}件，${hasEnough.expiryDate}到期）`,
+            alternatives: sameTypeBatches.filter((b) => b.id !== hasEnough.id),
+          };
+        }
+
+        const totalAvailable = sameTypeBatches.reduce((sum, b) => sum + b.remainingQuantity, 0);
+        return {
+          batch: sameTypeBatches[0],
+          reason: `库存不足！需${quantity}件，可用${totalAvailable}件`,
+          alternatives: sameTypeBatches.slice(1),
+        };
+      },
+
+      validateSupplyRequest: (items) => {
+        const errors: { type: SupplyType; message: string }[] = [];
+
+        items.forEach((item) => {
+          const batch = get().batches.find((b) => b.id === item.batchId);
+          if (!batch) {
+            errors.push({ type: item.supplyType, message: '批次不存在' });
+            return;
+          }
+          if (batch.remainingQuantity < item.quantity) {
+            errors.push({
+              type: item.supplyType,
+              message: `${batch.batchNo}剩余${batch.remainingQuantity}件，需${item.quantity}件，不足`,
+            });
+          }
+        });
+
+        return { valid: errors.length === 0, errors };
       },
     }),
     {

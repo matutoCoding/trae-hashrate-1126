@@ -19,9 +19,16 @@ export type AppointmentStatus =
   | 'pending'
   | 'confirmed'
   | 'checked-in'
+  | 'called'
   | 'collecting'
   | 'completed'
+  | 'missed'
+  | 'deferred'
+  | 'rescheduled'
+  | 'no-show'
   | 'cancelled';
+
+export type CallStatus = 'waiting' | 'current' | 'missed' | 'done';
 
 export interface Appointment {
   id: string;
@@ -35,9 +42,13 @@ export interface Appointment {
   timeSlot: string;
   timeRange: string;
   status: AppointmentStatus;
+  callStatus?: CallStatus;
+  queueNumber?: number;
+  remark?: string;
   supplyUsages: string[];
   createdAt: string;
   completedAt?: string;
+  calledAt?: string;
 }
 
 export type SupplyType = 'needle' | 'bag' | 'tube' | 'swab';
