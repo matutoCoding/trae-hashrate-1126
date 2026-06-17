@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarPlus, Calendar, Package, Droplets, MapPin, AlertTriangle, Heart, Clock } from 'lucide-react';
+import { CalendarPlus, Calendar, Package, Droplets, MapPin, AlertTriangle, Heart, Clock, LayoutGrid } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { useSupplyStore } from '@/store/supplyStore';
 import { validateDonationInterval } from '@/utils/validation';
@@ -49,8 +49,10 @@ export default function Dashboard() {
   const quickActions = [
     { label: '立即预约', icon: CalendarPlus, path: '/appointment', color: 'bg-gradient-to-br from-primary-500 to-primary-700' },
     { label: '排班查看', icon: Calendar, path: '/schedule', color: 'bg-gradient-to-br from-secondary-600 to-secondary-800' },
+    { label: '采血位管理', icon: LayoutGrid, path: '/stations', color: 'bg-gradient-to-br from-emerald-500 to-emerald-700' },
     { label: '耗材管理', icon: Package, path: '/supplies', color: 'bg-gradient-to-br from-violet-500 to-violet-700' },
     { label: '剩余追踪', icon: Heart, path: '/tracking', color: 'bg-gradient-to-br from-rose-500 to-rose-700' },
+    { label: '献血记录', icon: Clock, path: '/records', color: 'bg-gradient-to-br from-amber-500 to-orange-600' },
   ];
 
   return (
@@ -126,7 +128,7 @@ export default function Dashboard() {
             <span className="w-1 h-4 bg-primary-600 rounded-full" />
             快捷操作
           </h3>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {quickActions.map((action, idx) => {
               const Icon = action.icon;
               return (

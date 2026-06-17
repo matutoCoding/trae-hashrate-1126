@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Package, Calendar, AlertTriangle, TrendingDown, Eye, Save, X, SplitSquareHorizontal, Filter } from 'lucide-react';
+import { Plus, Package, Calendar, AlertTriangle, TrendingDown, Eye, Save, X, SplitSquareHorizontal, Filter, AlertCircle } from 'lucide-react';
 import { useSupplyStore } from '@/store/supplyStore';
 import { generateId, supplyTypeMap } from '@/utils/mock';
 import PageHeader from '@/components/layout/PageHeader';
@@ -26,6 +26,7 @@ export default function Supplies() {
     donorName: '',
     direction: '全血采集',
   });
+  const [splitError, setSplitError] = useState<string>('');
 
   const filteredBatches = useMemo(() => {
     let list = [...batches];
@@ -67,8 +68,27 @@ export default function Supplies() {
   };
 
   const handleSplit = (batchId: string) => {
+    const batch = batches.find((b) => b.id === batchId);
+    if (!batch) return;
+
     const qty = parseInt(splitData.quantity) || 0;
-    if (qty <= 0 || !splitData.donorName.trim()) return;
+
+    if (qty <= 0) {
+      setSplitError('请输入有效的出库数量');
+      return;
+    }
+
+    if (!splitData.donorName.trim()) {
+      setSplitError('请输入献血者姓名');
+      return;
+    }
+
+    if (qty > batch.remainingQuantity) {
+      setSplitError(`出库数量不能超过剩余库存 ${batch.remainingQuantity}${supplyTypeMap[batch.supplyType].unit}`);
+      return;
+    }
+
+    setSplitError('');
 
     const result = splitOutbound(
       batchId,
@@ -231,7 +251,10 @@ export default function Supplies() {
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setShowSplit(batch.id)}
+                    onClick={() => {
+                      setShowSplit(batch.id);
+                      setSplitError('');
+                    }}
                     className="flex-1 py-2 rounded-xl text-sm font-medium bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors flex items-center justify-center gap-1.5"
                   >
                     <SplitSquareHorizontal className="w-4 h-4" />
@@ -367,9 +390,18 @@ export default function Supplies() {
                     min="1"
                     max={batch.remainingQuantity}
                     value={splitData.quantity}
-                    onChange={(e) => setSplitData((f) => ({ ...f, quantity: e.target.value }))}
-                    className="input-field"
+                    onChange={(e) => {
+                      setSplitData((f) => ({ ...f, quantity: e.target.value }));
+                      setSplitError('');
+                    }}
+                    className={`input-field ${splitError ? 'border-primary-400 focus:ring-primary-100' : ''}`}
                   />
+                  {splitError && (
+                    <p className="text-xs text-primary-600 mt-1.5 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {splitError}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm text-surface-600 mb-1.5 block">献血者姓名</label>

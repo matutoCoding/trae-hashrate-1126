@@ -7,7 +7,7 @@ interface AllocationContext {
   appointments: Appointment[];
 }
 
-export function allocateStation(ctx: AllocationContext): StationAllocationResult {
+export function allocateStation(ctx: AllocationContext): StationAllocationResult | null {
   const { appointmentDate, timeSlot, stations, appointments } = ctx;
 
   const stationSlotUsage = new Map<string, number>();
@@ -46,7 +46,7 @@ export function allocateStation(ctx: AllocationContext): StationAllocationResult
     });
 
   const candidates = stations
-    .filter((s) => s.status !== 'maintenance')
+    .filter((s) => s.status === 'idle')
     .map((s) => {
       const slotUsed = stationSlotUsage.get(s.id) ?? 0;
       const remaining = s.capacity - slotUsed;
@@ -79,13 +79,7 @@ export function allocateStation(ctx: AllocationContext): StationAllocationResult
     .sort((a, b) => b.score - a.score);
 
   if (candidates.length === 0) {
-    const fallback = stations.find((s) => s.status !== 'maintenance')!;
-    return {
-      stationId: fallback.id,
-      stationName: fallback.name,
-      score: 0,
-      reason: '剩余容量紧张，强制分配',
-    };
+    return null;
   }
 
   return candidates[0];
@@ -106,4 +100,28 @@ export function getDonationDistribution(
       result.set(a.stationName, cur + 1);
     });
   return Array.from(result.entries()).map(([name, value]) => ({ name, value }));
+}
+
+export function getAvailableSlotCount(
+  date: string,
+  timeSlotId: string,
+  stations: Station[],
+  appointments: Appointment[],
+): { total: number; available: number; idleStations: number } {
+  const idleStations = stations.filter((s) => s.status === 'idle');
+  const totalCapacity = idleStations.reduce((sum, s) => sum + s.capacity, 0);
+
+  const usedCount = appointments.filter(
+    (a) =>
+      a.appointmentDate === date &&
+      a.timeSlot === timeSlotId &&
+      a.status !== 'cancelled' &&
+      idleStations.some((s) => s.id === a.stationId),
+  ).length;
+
+  return {
+    total: totalCapacity,
+    available: Math.max(0, totalCapacity - usedCount),
+    idleStations: idleStations.length,
+  };
 }

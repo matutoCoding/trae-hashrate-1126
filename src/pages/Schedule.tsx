@@ -1,12 +1,29 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Clock, MapPin, Users, Calendar as CalendarIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, MapPin, Users, Calendar as CalendarIcon, LayoutGrid } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
-import { generateTimeSlots } from '@/utils/mock';
+import { getAvailableSlotCount } from '@/utils/allocation';
 import PageHeader from '@/components/layout/PageHeader';
-import type { Appointment } from '@/types';
+import type { Appointment, TimeSlot } from '@/types';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+const TIME_SLOT_LIST = [
+  { id: '0800', start: '08:00', end: '08:30' },
+  { id: '0830', start: '08:30', end: '09:00' },
+  { id: '0900', start: '09:00', end: '09:30' },
+  { id: '0930', start: '09:30', end: '10:00' },
+  { id: '1000', start: '10:00', end: '10:30' },
+  { id: '1030', start: '10:30', end: '11:00' },
+  { id: '1100', start: '11:00', end: '11:30' },
+  { id: '1300', start: '13:00', end: '13:30' },
+  { id: '1330', start: '13:30', end: '14:00' },
+  { id: '1400', start: '14:00', end: '14:30' },
+  { id: '1430', start: '14:30', end: '15:00' },
+  { id: '1500', start: '15:00', end: '15:30' },
+  { id: '1530', start: '15:30', end: '16:00' },
+  { id: '1600', start: '16:00', end: '16:30' },
+];
 
 export default function Schedule() {
   const navigate = useNavigate();
@@ -76,7 +93,18 @@ export default function Schedule() {
     return map;
   }, [selectedAppointments, stations]);
 
-  const timeSlots = generateTimeSlots(selectedDate);
+  const timeSlots = useMemo((): TimeSlot[] => {
+    return TIME_SLOT_LIST.map((tpl) => {
+      const slotInfo = getAvailableSlotCount(selectedDate, tpl.id, stations, appointments);
+      return {
+        id: tpl.id,
+        startTime: tpl.start,
+        endTime: tpl.end,
+        available: slotInfo.available,
+        total: slotInfo.total || 1,
+      };
+    });
+  }, [selectedDate, stations, appointments]);
 
   const totalCapacity = stations.reduce((s, st) => s + st.capacity * timeSlots.length, 0);
   const totalApts = selectedAppointments.length;
@@ -100,7 +128,18 @@ export default function Schedule() {
 
   return (
     <div className="min-h-screen bg-surface-100 safe-bottom animate-fade-in">
-      <PageHeader title="排班日历" />
+      <PageHeader
+        title="排班日历"
+        right={
+          <button
+            onClick={() => navigate('/stations')}
+            className="flex items-center gap-1 text-sm text-primary-600 font-medium hover:text-primary-700 transition-colors"
+          >
+            <LayoutGrid className="w-4 h-4" />
+            采血位
+          </button>
+        }
+      />
 
       <div className="p-4 space-y-4">
         {/* 概览卡 */}

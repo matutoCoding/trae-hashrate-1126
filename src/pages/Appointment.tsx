@@ -1,14 +1,31 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, CalendarPlus, Clock, ChevronLeft, ChevronRight, User, Phone, AlertCircle, CheckCircle2, Droplets } from 'lucide-react';
+import { Calendar, CalendarPlus, Clock, ChevronLeft, ChevronRight, User, Phone, AlertCircle, CheckCircle2, Droplets, XCircle } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
-import { generateTimeSlots, generateId } from '@/utils/mock';
-import { allocateStation } from '@/utils/allocation';
+import { generateId } from '@/utils/mock';
+import { allocateStation, getAvailableSlotCount } from '@/utils/allocation';
 import { validateDonationInterval, validateIdCard, validatePhone, getIntervalDescription } from '@/utils/validation';
 import PageHeader from '@/components/layout/PageHeader';
 import type { Appointment, TimeSlot } from '@/types';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+const TIME_SLOT_TEMPLATES = [
+  { id: '0800', start: '08:00', end: '08:30' },
+  { id: '0830', start: '08:30', end: '09:00' },
+  { id: '0900', start: '09:00', end: '09:30' },
+  { id: '0930', start: '09:30', end: '10:00' },
+  { id: '1000', start: '10:00', end: '10:30' },
+  { id: '1030', start: '10:30', end: '11:00' },
+  { id: '1100', start: '11:00', end: '11:30' },
+  { id: '1300', start: '13:00', end: '13:30' },
+  { id: '1330', start: '13:30', end: '14:00' },
+  { id: '1400', start: '14:00', end: '14:30' },
+  { id: '1430', start: '14:30', end: '15:00' },
+  { id: '1500', start: '15:00', end: '15:30' },
+  { id: '1530', start: '15:30', end: '16:00' },
+  { id: '1600', start: '16:00', end: '16:30' },
+];
 
 export default function Appointment() {
   const navigate = useNavigate();
@@ -48,7 +65,18 @@ export default function Appointment() {
     return days;
   }, [weekOffset]);
 
-  const timeSlots = useMemo(() => generateTimeSlots(selectedDate), [selectedDate]);
+  const timeSlots = useMemo((): TimeSlot[] => {
+    return TIME_SLOT_TEMPLATES.map((tpl) => {
+      const slotInfo = getAvailableSlotCount(selectedDate, tpl.id, stations, appointments);
+      return {
+        id: tpl.id,
+        startTime: tpl.start,
+        endTime: tpl.end,
+        available: slotInfo.available,
+        total: slotInfo.total || 1,
+      };
+    });
+  }, [selectedDate, stations, appointments]);
 
   useEffect(() => {
     const status = validateDonationInterval(
@@ -109,6 +137,14 @@ export default function Appointment() {
       stations,
       appointments,
     });
+
+    if (!allocationResult) {
+      setFormErrors((prev) => ({
+        ...prev,
+        name: '该时段无可用空闲采血位，请选择其他时段或日期',
+      }));
+      return;
+    }
 
     const newAppointment: Appointment = {
       id: generateId('apt'),
