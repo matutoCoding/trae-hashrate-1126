@@ -100,6 +100,41 @@ export interface DonationRecord {
   stationName: string;
 }
 
+export interface ShiftRecord {
+  id: string;
+  date: string;
+  closedAt: string;
+  operatorName: string;
+  summary: {
+    totalAppointments: number;
+    completed: number;
+    collecting: number;
+    abnormal: number;
+    totalSupplyUsed: number;
+  };
+  byStation: {
+    stationId: string;
+    stationName: string;
+    total: number;
+    completed: number;
+    collecting: number;
+    waiting: number;
+    abnormal: number;
+  }[];
+  bySupply: {
+    supplyTypeName: string;
+    quantity: number;
+  }[];
+  abnormalList: {
+    appointmentId: string;
+    donorName: string;
+    stationName: string;
+    timeRange: string;
+    status: AppointmentStatus;
+    remark: string;
+  }[];
+}
+
 export interface StationAllocationResult {
   stationId: string;
   stationName: string;

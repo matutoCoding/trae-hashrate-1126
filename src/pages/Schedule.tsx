@@ -30,6 +30,11 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  UserPlus,
+  Eye,
+  Save,
+  FileCheck2,
+  Clock8,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { useSupplyStore } from '@/store/supplyStore';
@@ -123,8 +128,16 @@ export default function Schedule() {
     getCurrentCalled,
     getWaitingQueue,
     getMissedQueue,
+    walkInRegister,
+    createShiftRecord,
   } = useAppStore();
-  const { batches, getRecommendedBatch, validateSupplyRequest, splitOutbound } = useSupplyStore();
+  const {
+    batches,
+    getRecommendedBatch,
+    validateSupplyRequest,
+    splitOutbound,
+    getOutboundPreview,
+  } = useSupplyStore();
   const today = new Date();
 
   const [viewDate, setViewDate] = useState(new Date(today));
@@ -141,6 +154,14 @@ export default function Schedule() {
   const [supplyErrors, setSupplyErrors] = useState<string[]>([]);
   const [showDailySummary, setShowDailySummary] = useState(false);
   const [expandedStations, setExpandedStations] = useState<Set<string>>(new Set());
+  const [showWalkInModal, setShowWalkInModal] = useState(false);
+  const [walkInData, setWalkInData] = useState({
+    name: '',
+    idCard: '',
+    phone: '',
+    timeSlotId: TIME_SLOT_LIST[0].id,
+  });
+  const [walkInError, setWalkInError] = useState('');
 
   const currentCalled = getCurrentCalled(selectedDate);
   const waitingQueue = getWaitingQueue(selectedDate);
@@ -271,7 +292,7 @@ export default function Schedule() {
   };
 
   const handleStartCollecting = (id: string) => {
-    startCollecting(id);
+    startCollecting(id, selectedDate);
     const apt = appointments.find((a) => a.id === id);
     if (apt) setSelectedApt({ ...apt, status: 'collecting' });
   };
@@ -358,13 +379,48 @@ export default function Schedule() {
   const handleAbnormal = () => {
     if (!selectedApt) return;
     const reason = abnormalReason.trim() || '未填写';
-    if (abnormalType === 'deferred') markDeferred(selectedApt.id, reason);
-    else if (abnormalType === 'rescheduled') markRescheduled(selectedApt.id, reason);
-    else markNoShow(selectedApt.id, reason);
+    if (abnormalType === 'deferred') markDeferred(selectedApt.id, reason, selectedDate);
+    else if (abnormalType === 'rescheduled') markRescheduled(selectedApt.id, reason, selectedDate);
+    else markNoShow(selectedApt.id, reason, selectedDate);
     setShowAbnormalModal(false);
     setAbnormalReason('');
     const apt = appointments.find((a) => a.id === selectedApt.id);
     if (apt) setSelectedApt({ ...apt, status: abnormalType });
+  };
+
+  const handleWalkIn = () => {
+    if (!walkInData.name.trim()) {
+      setWalkInError('请输入姓名');
+      return;
+    }
+    if (!/^\d{17}[\dXx]$/.test(walkInData.idCard)) {
+      setWalkInError('请输入正确的18位身份证号');
+      return;
+    }
+    if (!/^1[3-9]\d{9}$/.test(walkInData.phone)) {
+      setWalkInError('请输入正确的11位手机号');
+      return;
+    }
+
+    const result = walkInRegister(
+      {
+        name: walkInData.name.trim(),
+        idCard: walkInData.idCard.trim(),
+        phone: walkInData.phone.trim(),
+      },
+      walkInData.timeSlotId,
+      selectedDate,
+    );
+
+    if (!result) {
+      setWalkInError('当前时段无可用采血位，请选择其他时段');
+      return;
+    }
+
+    setShowWalkInModal(false);
+    setWalkInData({ name: '', idCard: '', phone: '', timeSlotId: TIME_SLOT_LIST[0].id });
+    setWalkInError('');
+    setSelectedApt(result);
   };
 
   const toggleStation = (id: string) => {
@@ -397,6 +453,16 @@ export default function Schedule() {
             >
               <LayoutGrid className="w-4 h-4" />
               采血位
+            </button>
+            <button
+              onClick={() => {
+                setShowWalkInModal(true);
+                setWalkInError('');
+              }}
+              className="flex items-center gap-1 text-sm text-emerald-600 font-medium hover:text-emerald-700 transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              补录
             </button>
           </div>
         }
@@ -455,14 +521,14 @@ export default function Schedule() {
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => recallAppointment(currentCalled.id)}
+                      onClick={() => recallAppointment(currentCalled.id, selectedDate)}
                       className="px-3 py-1.5 rounded-lg bg-amber-500/80 text-xs font-medium hover:bg-amber-500 transition-colors flex items-center gap-1"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                       重呼
                     </button>
                     <button
-                      onClick={() => markMissed(currentCalled.id)}
+                      onClick={() => markMissed(currentCalled.id, selectedDate)}
                       className="px-3 py-1.5 rounded-lg bg-white/20 text-xs font-medium hover:bg-white/30 transition-colors flex items-center gap-1"
                     >
                       <PhoneMissed className="w-3.5 h-3.5" />
@@ -484,7 +550,7 @@ export default function Schedule() {
                       {String(apt.queueNumber || 0).padStart(3, '0')} · {apt.donorName}
                     </span>
                     <button
-                      onClick={() => recallAppointment(apt.id)}
+                      onClick={() => recallAppointment(apt.id, selectedDate)}
                       className="text-xs px-2 py-1 rounded-lg bg-secondary-400/80 hover:bg-secondary-400 transition-colors flex items-center gap-1"
                     >
                       <RotateCcw className="w-3 h-3" />
@@ -986,7 +1052,7 @@ export default function Schedule() {
                     确认到场，开始采血
                   </button>
                   <button
-                    onClick={() => markMissed(selectedApt.id)}
+                    onClick={() => markMissed(selectedApt.id, selectedDate)}
                     className="w-full btn-secondary text-orange-600 flex items-center justify-center gap-2"
                   >
                     <PhoneMissed className="w-4 h-4" />
@@ -1044,7 +1110,7 @@ export default function Schedule() {
 
               {selectedApt.callStatus === 'missed' && selectedApt.status !== 'no-show' && (
                 <button
-                  onClick={() => recallAppointment(selectedApt.id)}
+                  onClick={() => recallAppointment(selectedApt.id, selectedDate)}
                   className="w-full btn-secondary text-secondary-600 flex items-center justify-center gap-2"
                 >
                   <RotateCcw className="w-4 h-4" />
@@ -1262,6 +1328,69 @@ export default function Schedule() {
               })}
             </div>
 
+            {/* 出库预览 */}
+            {(() => {
+              const preview = getOutboundPreview(supplyItems);
+              if (preview.details.length === 0) return null;
+              return (
+                <div className="p-4 border-t border-surface-100 bg-surface-50">
+                  <div className="font-medium text-sm text-surface-800 mb-2 flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-secondary-600" />
+                    出库预览
+                    <span className="text-xs text-surface-500 font-normal">确认后将从以下批次扣减</span>
+                  </div>
+
+                  {preview.warnings.length > 0 && (
+                    <div className="mb-2 space-y-1">
+                      {preview.warnings.map((w, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                          {w}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    {preview.details.map((d, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between text-xs py-1.5 px-2 bg-white rounded-lg"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-1.5 py-0.5 rounded ${
+                              d.isExpiring
+                                ? 'bg-red-100 text-red-700'
+                                : d.isNearExpiry
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-surface-100 text-surface-600'
+                            }`}
+                          >
+                            {d.batchNo}
+                          </span>
+                          <span className="text-surface-700">{d.supplyTypeName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-surface-500">-{d.quantity}</span>
+                          <span className="text-surface-400">→</span>
+                          <span className="text-surface-600">剩{d.remainingAfter}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 pt-2 border-t border-surface-200 flex items-center justify-between text-sm font-medium">
+                    <span className="text-surface-600">合计扣减</span>
+                    <span className="text-primary-700">{preview.totalQuantity} 件</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="p-5 border-t border-surface-100 flex gap-3">
               <button
                 onClick={() => setShowSupplyModal(false)}
@@ -1281,6 +1410,130 @@ export default function Schedule() {
         </div>
       )}
 
+      {/* 现场补录弹窗 */}
+      {showWalkInModal && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+          <div className="w-full max-w-[480px] bg-white rounded-t-3xl sm:rounded-3xl animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-surface-100">
+              <div>
+                <h3 className="text-lg font-semibold text-surface-900">现场补录登记</h3>
+                <p className="text-sm text-surface-500 mt-0.5">
+                  未预约直接到车，{selectedDate} · 自动分配采血位
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowWalkInModal(false);
+                  setWalkInError('');
+                }}
+                className="p-2 rounded-full hover:bg-surface-50"
+              >
+                <X className="w-5 h-5 text-surface-400" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {walkInError && (
+                <div className="p-3 bg-primary-50 rounded-xl flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-primary-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-primary-700">{walkInError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="text-sm text-surface-600 mb-1.5 block">选择时段</label>
+                <select
+                  value={walkInData.timeSlotId}
+                  onChange={(e) => setWalkInData((f) => ({ ...f, timeSlotId: e.target.value }))}
+                  className="w-full input-field"
+                >
+                  {TIME_SLOT_LIST.map((t) => {
+                    const slotInfo = getAvailableSlotCount(
+                      selectedDate,
+                      t.id,
+                      stations,
+                      appointments,
+                    );
+                    return (
+                      <option key={t.id} value={t.id} disabled={slotInfo.available === 0}>
+                        {t.start}-{t.end}（剩余 {slotInfo.available} 位）
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-surface-600 mb-1.5 block">姓名</label>
+                <input
+                  type="text"
+                  value={walkInData.name}
+                  onChange={(e) =>
+                    setWalkInData((f) => ({ ...f, name: e.target.value }))
+                  }
+                  className="w-full input-field"
+                  placeholder="请输入姓名"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-surface-600 mb-1.5 block">身份证号</label>
+                <input
+                  type="text"
+                  value={walkInData.idCard}
+                  onChange={(e) =>
+                    setWalkInData((f) => ({ ...f, idCard: e.target.value.toUpperCase() }))
+                  }
+                  className="w-full input-field"
+                  placeholder="18位身份证号"
+                  maxLength={18}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-surface-600 mb-1.5 block">手机号</label>
+                <input
+                  type="tel"
+                  value={walkInData.phone}
+                  onChange={(e) =>
+                    setWalkInData((f) => ({ ...f, phone: e.target.value }))
+                  }
+                  className="w-full input-field"
+                  placeholder="11位手机号"
+                  maxLength={11}
+                />
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-xl flex items-start gap-2">
+                <UserCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-emerald-700">
+                  补录成功后自动分配采血位，直接加入当天待叫队列，可从预约详情查看
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-surface-100 flex gap-3">
+              <button
+                onClick={() => {
+                  setShowWalkInModal(false);
+                  setWalkInError('');
+                }}
+                className="flex-1 btn-secondary text-surface-500"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleWalkIn}
+                className="flex-1 btn-primary bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                补录登记
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 日结汇总弹窗 */}
       {showDailySummary && <DailySummaryModal onClose={() => setShowDailySummary(false)} date={selectedDate} />}
     </div>
@@ -1288,10 +1541,15 @@ export default function Schedule() {
 }
 
 function DailySummaryModal({ onClose, date }: { onClose: () => void; date: string }) {
-  const { appointments, stations } = useAppStore();
+  const { appointments, stations, createShiftRecord, shiftRecords } = useAppStore();
   const { getUsageByDate } = useSupplyStore();
-  const { usages } = useSupplyStore();
+  const [expandedStations, setExpandedStations] = useState<Set<string>>(new Set());
+  const [showAbnormal, setShowAbnormal] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [operatorName, setOperatorName] = useState('');
+  const [closeSuccess, setCloseSuccess] = useState(false);
 
+  const existingRecord = shiftRecords.find((r) => r.date === date);
   const todaysApts = appointments.filter((a) => a.appointmentDate === date && a.status !== 'cancelled');
   const todaysUsages = getUsageByDate(date);
 
@@ -1299,18 +1557,41 @@ function DailySummaryModal({ onClose, date }: { onClose: () => void; date: strin
     const map: Record<string, number> = {};
     todaysApts.forEach((a) => {
       map[a.status] = (map[a.status] || 0) + 1;
+      if (a.callStatus === 'missed') {
+        map['missed'] = (map['missed'] || 0) + 1;
+      }
     });
     return map;
   }, [todaysApts]);
 
   const byStation = useMemo(() => {
-    const map: Record<string, { total: number; completed: number; collecting: number; waiting: number }> = {};
-    stations.forEach((s) => (map[s.id] = { total: 0, completed: 0, collecting: 0, waiting: 0 }));
+    const map: Record<
+      string,
+      { total: number; completed: number; collecting: number; waiting: number; abnormal: number; apointments: Appointment[] }
+    > = {};
+    stations.forEach((s) =>
+      (map[s.id] = { total: 0, completed: 0, collecting: 0, waiting: 0, abnormal: 0, apointments: [] }),
+    );
     todaysApts.forEach((a) => {
-      if (!map[a.stationId]) map[a.stationId] = { total: 0, completed: 0, collecting: 0, waiting: 0 };
+      if (!map[a.stationId])
+        map[a.stationId] = {
+          total: 0,
+          completed: 0,
+          collecting: 0,
+          waiting: 0,
+          abnormal: 0,
+          apointments: [],
+        };
       map[a.stationId].total++;
+      map[a.stationId].apointments.push(a);
       if (a.status === 'completed') map[a.stationId].completed++;
       else if (a.status === 'collecting') map[a.stationId].collecting++;
+      else if (
+        a.status === 'deferred' ||
+        a.status === 'rescheduled' ||
+        a.status === 'no-show'
+      )
+        map[a.stationId].abnormal++;
       else map[a.stationId].waiting++;
     });
     return map;
@@ -1332,11 +1613,43 @@ function DailySummaryModal({ onClose, date }: { onClose: () => void; date: strin
     return map;
   }, [todaysUsages]);
 
+  const abnormalList = useMemo(() => {
+    return todaysApts
+      .filter(
+        (a) =>
+          a.status === 'deferred' ||
+          a.status === 'rescheduled' ||
+          a.status === 'no-show' ||
+          a.callStatus === 'missed',
+      )
+      .sort((a, b) => a.timeSlot.localeCompare(b.timeSlot));
+  }, [todaysApts]);
+
   const totalCompleted = byStatus['completed'] || 0;
   const totalCollecting = byStatus['collecting'] || 0;
+  const totalMissed = byStatus['missed'] || 0;
   const totalAbnormal =
     (byStatus['deferred'] || 0) + (byStatus['rescheduled'] || 0) + (byStatus['no-show'] || 0);
   const totalSupply = todaysUsages.reduce((s, u) => s + u.quantity, 0);
+
+  const toggleStation = (id: string) => {
+    setExpandedStations((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleCloseShift = () => {
+    if (!operatorName.trim()) return;
+    createShiftRecord(date, operatorName.trim(), stations, todaysUsages);
+    setCloseSuccess(true);
+    setShowConfirm(false);
+    setTimeout(() => {
+      onClose();
+    }, 1500);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
@@ -1344,12 +1657,26 @@ function DailySummaryModal({ onClose, date }: { onClose: () => void; date: strin
         <div className="flex items-center justify-between p-5 border-b border-surface-100">
           <div>
             <h3 className="text-lg font-semibold text-surface-900">日结汇总</h3>
-            <p className="text-sm text-surface-500 mt-0.5">{date}</p>
+            <p className="text-sm text-surface-500 mt-0.5">
+              {date}
+              {existingRecord && (
+                <span className="ml-2 text-emerald-600 text-xs font-medium">
+                  · 已交班 · {existingRecord.operatorName}
+                </span>
+              )}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-surface-50">
             <X className="w-5 h-5 text-surface-400" />
           </button>
         </div>
+
+        {closeSuccess && (
+          <div className="mx-5 mt-4 p-3 bg-emerald-50 rounded-xl flex items-center gap-2 text-emerald-700">
+            <FileCheck2 className="w-4 h-4" />
+            <span className="text-sm font-medium">交班成功！记录已保存</span>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           <div className="grid grid-cols-4 gap-3">
@@ -1366,7 +1693,7 @@ function DailySummaryModal({ onClose, date }: { onClose: () => void; date: strin
               <div className="text-xs text-primary-600 mt-1">进行中</div>
             </div>
             <div className="p-3 bg-amber-50 rounded-xl text-center">
-              <div className="text-xl font-bold text-amber-700">{totalAbnormal}</div>
+              <div className="text-xl font-bold text-amber-700">{totalAbnormal + totalMissed}</div>
               <div className="text-xs text-amber-600 mt-1">异常</div>
             </div>
           </div>
@@ -1393,35 +1720,141 @@ function DailySummaryModal({ onClose, date }: { onClose: () => void; date: strin
           <div className="card">
             <h4 className="font-medium text-surface-800 mb-3 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-primary-600" />
-              采血位汇总
+              采血位汇总 · 点击展开人员明细
             </h4>
             <div className="space-y-2">
               {stations.map((s) => {
                 const data = byStation[s.id];
                 if (!data || data.total === 0) return null;
+                const isOpen = expandedStations.has(s.id);
                 const percent = data.total > 0 ? (data.completed / data.total) * 100 : 0;
                 return (
-                  <div key={s.id} className="p-3 bg-surface-50 rounded-xl">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-medium text-surface-800">{s.name}</span>
-                      <span className="text-sm text-surface-500">
-                        {data.completed}/{data.total} 完成
-                      </span>
+                  <div key={s.id} className="bg-surface-50 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => toggleStation(s.id)}
+                      className="w-full flex items-center justify-between p-3 text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-primary-600" />
+                        <span className="font-medium text-surface-800">{s.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-surface-500">
+                        <span>
+                          {data.completed}/{data.total}
+                        </span>
+                        {data.abnormal > 0 && (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                            异常{data.abnormal}
+                          </span>
+                        )}
+                        {isOpen ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </div>
+                    </button>
+                    <div className="px-3 pb-2">
+                      <div className="progress-bar h-1.5 mb-2">
+                        <div
+                          className="progress-inner bg-emerald-500"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <div className="flex gap-3 text-xs text-surface-500">
+                        <span>完成{data.completed}</span>
+                        <span>进行中{data.collecting}</span>
+                        <span>待进行{data.total - data.completed - data.collecting}</span>
+                      </div>
                     </div>
-                    <div className="progress-bar h-1.5">
-                      <div
-                        className="progress-inner bg-emerald-500"
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
-                    <div className="flex gap-3 mt-2 text-xs text-surface-500">
-                      <span>采血中 {data.collecting}</span>
-                      <span>待进行 {data.total - data.completed - data.collecting}</span>
-                    </div>
+                    {isOpen && (
+                      <div className="px-3 pb-3 pt-1 border-t border-surface-100 space-y-1.5">
+                        {data.apointments
+                          .sort((a, b) => a.timeSlot.localeCompare(b.timeSlot))
+                          .map((apt) => (
+                            <div
+                              key={apt.id}
+                              className="flex items-center justify-between text-xs py-1.5 px-2 bg-white rounded-lg"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Clock8 className="w-3 h-3 text-surface-400" />
+                                <span className="text-surface-600">{apt.timeRange}</span>
+                                <span className="text-surface-800 font-medium">{apt.donorName}</span>
+                              </div>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusClassMap[apt.status] || 'tag-default'}`}
+                              >
+                                {statusLabelMap[apt.status] || apt.status}
+                                {apt.callStatus === 'missed' && '·过号'}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
+          </div>
+
+          <div className="card">
+            <button
+              onClick={() => setShowAbnormal(!showAbnormal)}
+              className="w-full flex items-center justify-between"
+            >
+              <h4 className="font-medium text-surface-800 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                异常 & 过号明细
+                <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                  {abnormalList.length}条
+                </span>
+              </h4>
+              {showAbnormal ? (
+                <ChevronUp className="w-4 h-4 text-surface-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-surface-400" />
+              )}
+            </button>
+            {showAbnormal && (
+              <div className="mt-3 space-y-2">
+                {abnormalList.length === 0 ? (
+                  <div className="text-center py-4 text-surface-400 text-sm">
+                    今日无异常记录
+                  </div>
+                ) : (
+                  abnormalList.map((apt) => (
+                    <div
+                      key={apt.id}
+                      className="p-3 bg-amber-50 rounded-xl flex items-start gap-3"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-surface-800">
+                            {apt.donorName}
+                          </span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusClassMap[apt.status] || 'tag-default'}`}
+                          >
+                            {apt.callStatus === 'missed'
+                              ? '过号'
+                              : statusLabelMap[apt.status] || apt.status}
+                          </span>
+                        </div>
+                        <div className="text-xs text-surface-500 mt-0.5">
+                          {apt.stationName} · {apt.timeRange}
+                        </div>
+                        <div className="text-xs text-amber-700 mt-1.5 bg-white/60 rounded px-2 py-1">
+                          {apt.callStatus === 'missed'
+                            ? '过号未到'
+                            : apt.remark || '未备注原因'}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           <div className="card">
@@ -1464,18 +1897,67 @@ function DailySummaryModal({ onClose, date }: { onClose: () => void; date: strin
                 </div>
               ))}
               {Object.keys(bySupply).length === 0 && (
-                <div className="text-center py-4 text-surface-400 text-sm">暂无耗材使用记录</div>
+                <div className="text-center py-4 text-surface-400 text-sm">
+                  暂无耗材使用记录
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="p-5 border-t border-surface-100">
-          <button onClick={onClose} className="w-full btn-primary flex items-center justify-center gap-2">
-            <LogOut className="w-4 h-4" />
-            确认交班
-          </button>
-        </div>
+        {!existingRecord && !closeSuccess && (
+          <div className="p-5 border-t border-surface-100">
+            {!showConfirm ? (
+              <button
+                onClick={() => setShowConfirm(true)}
+                className="w-full btn-primary flex items-center justify-center gap-2"
+              >
+                <Save className="w-4 h-4" />
+                确认交班
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm text-surface-600 mb-1.5 block">交班人姓名</label>
+                  <input
+                    type="text"
+                    value={operatorName}
+                    onChange={(e) => setOperatorName(e.target.value)}
+                    className="w-full input-field"
+                    placeholder="请输入交班人姓名"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowConfirm(false)}
+                    className="flex-1 btn-secondary text-surface-500"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleCloseShift}
+                    disabled={!operatorName.trim()}
+                    className="flex-1 btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <FileCheck2 className="w-4 h-4" />
+                    确认交班
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {existingRecord && (
+          <div className="p-5 border-t border-surface-100">
+            <button
+              onClick={onClose}
+              className="w-full btn-secondary text-surface-500 flex items-center justify-center gap-2"
+            >
+              关闭
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -19,6 +19,7 @@ import {
   Save,
   RefreshCw,
   AlertTriangle,
+  Eye,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { useSupplyStore } from '@/store/supplyStore';
@@ -36,8 +37,14 @@ export default function Result() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { appointments, stations, completeAppointment, updateAppointment } = useAppStore();
-  const { batches, splitOutbound, getAppointmentUsages, getRecommendedBatch, validateSupplyRequest } =
-    useSupplyStore();
+  const {
+    batches,
+    splitOutbound,
+    getAppointmentUsages,
+    getRecommendedBatch,
+    validateSupplyRequest,
+    getOutboundPreview,
+  } = useSupplyStore();
 
   const [animated, setAnimated] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -537,6 +544,69 @@ export default function Result() {
                 );
               })}
             </div>
+
+            {/* 出库预览 */}
+            {(() => {
+              const preview = getOutboundPreview(supplyItems);
+              if (preview.details.length === 0) return null;
+              return (
+                <div className="p-4 border-t border-surface-100 bg-surface-50">
+                  <div className="font-medium text-sm text-surface-800 mb-2 flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-secondary-600" />
+                    出库预览
+                    <span className="text-xs text-surface-500 font-normal">确认后将从以下批次扣减</span>
+                  </div>
+
+                  {preview.warnings.length > 0 && (
+                    <div className="mb-2 space-y-1">
+                      {preview.warnings.map((w, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                          {w}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    {preview.details.map((d, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between text-xs py-1.5 px-2 bg-white rounded-lg"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-1.5 py-0.5 rounded ${
+                              d.isExpiring
+                                ? 'bg-red-100 text-red-700'
+                                : d.isNearExpiry
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-surface-100 text-surface-600'
+                            }`}
+                          >
+                            {d.batchNo}
+                          </span>
+                          <span className="text-surface-700">{d.supplyTypeName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-surface-500">-{d.quantity}</span>
+                          <span className="text-surface-400">→</span>
+                          <span className="text-surface-600">剩{d.remainingAfter}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 pt-2 border-t border-surface-200 flex items-center justify-between text-sm font-medium">
+                    <span className="text-surface-600">合计扣减</span>
+                    <span className="text-primary-700">{preview.totalQuantity} 件</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="p-5 border-t border-surface-100 space-y-2">
               <button

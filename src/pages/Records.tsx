@@ -13,6 +13,11 @@ import {
   FileClock,
   AlertTriangle,
   ChevronRight,
+  FileSpreadsheet,
+  User,
+  Package,
+  Users,
+  FileCheck2,
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import {
@@ -50,7 +55,7 @@ const aptStatusClass: Record<string, string> = {
 
 export default function Records() {
   const navigate = useNavigate();
-  const { donor, donationRecords, appointments } = useAppStore();
+  const { donor, donationRecords, appointments, shiftRecords } = useAppStore();
   const today = new Date().toISOString().split('T')[0];
 
   const summary = useMemo(() => summarizeDonations(donationRecords), [donationRecords]);
@@ -352,6 +357,147 @@ export default function Records() {
                     )}
                   </button>
                 ))}
+            </div>
+          )}
+        </div>
+
+        {/* 交班记录 */}
+        <div className="card">
+          <h3 className="font-semibold text-surface-800 mb-4 flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-secondary-600" />
+            交班记录
+          </h3>
+
+          {shiftRecords.length === 0 ? (
+            <div className="text-center py-8 text-surface-400">
+              <FileCheck2 className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">暂无交班记录</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {shiftRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="p-4 bg-surface-50 rounded-xl hover:bg-surface-100 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <FileCheck2 className="w-4 h-4 text-emerald-500" />
+                      <span className="font-medium text-surface-800">{record.date}</span>
+                    </div>
+                    <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                      已交班
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2 mb-3">
+                    <div className="bg-white rounded-lg p-2 text-center">
+                      <div className="text-lg font-bold text-surface-800">
+                        {record.summary.totalAppointments}
+                      </div>
+                      <div className="text-[10px] text-surface-500">总预约</div>
+                    </div>
+                    <div className="bg-emerald-50 rounded-lg p-2 text-center">
+                      <div className="text-lg font-bold text-emerald-700">
+                        {record.summary.completed}
+                      </div>
+                      <div className="text-[10px] text-emerald-600">已完成</div>
+                    </div>
+                    <div className="bg-primary-50 rounded-lg p-2 text-center">
+                      <div className="text-lg font-bold text-primary-700">
+                        {record.summary.collecting}
+                      </div>
+                      <div className="text-[10px] text-primary-600">进行中</div>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-2 text-center">
+                      <div className="text-lg font-bold text-amber-700">
+                        {record.summary.abnormal}
+                      </div>
+                      <div className="text-[10px] text-amber-600">异常</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between text-surface-500">
+                      <span className="flex items-center gap-1">
+                        <User className="w-3 h-3" />
+                        交班人
+                      </span>
+                      <span className="text-surface-700 font-medium">{record.operatorName}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-surface-500">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        交班时间
+                      </span>
+                      <span className="text-surface-700">
+                        {record.closedAt.replace('T', ' ').slice(0, 19)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-surface-500">
+                      <span className="flex items-center gap-1">
+                        <Package className="w-3 h-3" />
+                        耗材用量
+                      </span>
+                      <span className="text-surface-700 font-medium">
+                        {record.summary.totalSupplyUsed} 件
+                      </span>
+                    </div>
+                  </div>
+
+                  {record.abnormalList.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-surface-200">
+                      <div className="text-xs text-surface-500 mb-2 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-amber-500" />
+                        异常记录（{record.abnormalList.length}条）
+                      </div>
+                      <div className="space-y-1 max-h-24 overflow-y-auto">
+                        {record.abnormalList.slice(0, 3).map((item) => (
+                          <div
+                            key={item.appointmentId}
+                            className="text-xs bg-amber-50 rounded-lg px-2 py-1.5"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-surface-700">{item.donorName}</span>
+                              <span className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                                {aptStatusLabel[item.status] || item.status}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-amber-700 mt-0.5">{item.remark}</div>
+                          </div>
+                        ))}
+                        {record.abnormalList.length > 3 && (
+                          <div className="text-xs text-center text-surface-400">
+                            还有 {record.abnormalList.length - 3} 条...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-3 pt-3 border-t border-surface-200">
+                    <div className="text-xs text-surface-500 mb-2 flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      各采血位完成情况
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {record.byStation
+                        .filter((s) => s.total > 0)
+                        .map((s) => (
+                          <div
+                            key={s.stationId}
+                            className="text-xs bg-white rounded-lg px-2 py-1.5 flex items-center justify-between"
+                          >
+                            <span className="text-surface-600">{s.stationName}</span>
+                            <span className="text-emerald-700 font-medium">
+                              {s.completed}/{s.total}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

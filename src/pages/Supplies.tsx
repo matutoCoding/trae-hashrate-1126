@@ -209,27 +209,47 @@ export default function Supplies() {
             const usedCount = getBatchUsages(batch.id).length;
             const typeInfo = supplyTypeMap[batch.supplyType];
             const expiry = getExpiryInfo(batch.expiryDate);
+            const isExpired = expiry.text === '已过期';
             const barColor =
-              ratio > 0.5 ? 'bg-secondary-500' : ratio > 0.2 ? 'bg-amber-500' : 'bg-primary-500';
+              isExpired
+                ? 'bg-primary-500'
+                : ratio > 0.5
+                ? 'bg-secondary-500'
+                : ratio > 0.2
+                ? 'bg-amber-500'
+                : 'bg-primary-500';
             return (
               <div
                 key={batch.id}
-                className="card card-hover animate-slide-up"
+                className={`card card-hover animate-slide-up ${
+                  isExpired ? 'ring-2 ring-primary-200 bg-primary-50/30' : ''
+                }`}
                 style={{ animationDelay: `${idx * 40}ms` }}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-start gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-100 to-secondary-100 flex items-center justify-center text-2xl">
+                    <div
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${
+                        isExpired
+                          ? 'bg-gradient-to-br from-primary-100 to-primary-200'
+                          : 'bg-gradient-to-br from-violet-100 to-secondary-100'
+                      }`}
+                    >
                       {typeInfo.icon}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-semibold text-surface-800">{batch.supplyTypeName}</h4>
-                        {ratio <= 0.2 && (
+                        <h4 className="font-semibold text-surface-800">
+                          {batch.supplyTypeName}
+                        </h4>
+                        {isExpired && <span className="tag tag-danger">已过期</span>}
+                        {!isExpired && ratio <= 0.2 && (
                           <span className="tag tag-danger">库存告急</span>
                         )}
                       </div>
-                      <div className="text-sm text-surface-500 font-mono">{batch.batchNo}</div>
+                      <div className="text-sm text-surface-500 font-mono">
+                        {batch.batchNo}
+                      </div>
                     </div>
                   </div>
                   <span className={`tag ${expiry.color}`}>
@@ -260,6 +280,7 @@ export default function Supplies() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
+                      if (isExpired) return;
                       setShowSplit(batch.id);
                       setSplitError('');
                       setSplitData((f) => ({
@@ -268,7 +289,12 @@ export default function Supplies() {
                         stationName: stations[0]?.name || '',
                       }));
                     }}
-                    className="flex-1 py-2 rounded-xl text-sm font-medium bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors flex items-center justify-center gap-1.5"
+                    disabled={isExpired}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                      isExpired
+                        ? 'bg-surface-100 text-surface-400 cursor-not-allowed'
+                        : 'bg-primary-50 text-primary-700 hover:bg-primary-100'
+                    }`}
                   >
                     <SplitSquareHorizontal className="w-4 h-4" />
                     拆分出库
